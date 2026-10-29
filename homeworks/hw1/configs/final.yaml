@@ -1,0 +1,45 @@
+# Final HW1 run for the report = notebook section 14: the architecture winners of section 11
+# (stride-2 convs, SiLU, nearest-neighbour upsampling), the regularization winners of section 12
+# (augmentation, dropout 0.2 on the FC bottleneck), beta from section 13 / the section 14 table.
+# Train, score and export with the README pipeline (fills report/generated/ automatically):
+#   uv run python -m hw1.train --config homeworks/hw1/configs/final.yaml
+#   uv run python -m hw1.evaluate
+#   uv run python -m hw1.report_assets
+name: vae-final
+
+data:
+  image_size: 64
+  batch_size: 128
+
+model:
+  latent_dim: 128
+  hidden_channels: 32
+  num_stages: 3
+  convs_per_stage: 1
+  norm: batch
+  activation: silu
+  downsample: stride
+  upsample: nearest_conv
+  final_conv: false
+  residual: false
+  dropout: 0.2
+  likelihood: gaussian
+  gaussian_sigma: 0.1
+
+train:
+  epochs: 200
+  lr: 1.0e-3
+  lr_schedule: cosine
+  weight_decay: 0.0
+  augment: true
+  beta: 1.0 # section 13: best FID of prior samples; set 0.1 if the section 14 table says otherwise
+  kl_warmup_epochs: 0
+  grad_clip_norm: 1.0
+  seed: 0
+  sample_every: 10
+
+eval:
+  checkpoint: best
+  reference_split: test
+  num_samples: 0 # 0 = all 624 test images
+  repeats: 3

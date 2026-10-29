@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data, runs, model weights (large and regenerable)
+/data/
+/runs/
+homeworks/*/notebooks/models/
+*.pt
+*.pth
+*.ckpt
+*.npz
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini

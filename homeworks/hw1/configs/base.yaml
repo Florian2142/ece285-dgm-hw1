@@ -1,0 +1,27 @@
+# Baseline HW1 run. Defaults and comments: homeworks/hw1/config.py.
+# Override anything on the command line, for example:
+#   uv run python -m hw1.train train.epochs=100 model.latent_dim=64 name=vae-k64
+name: vae-base
+
+data:
+  image_size: 64
+  batch_size: 128
+
+model:
+  latent_dim: 32
+  hidden_channels: 32
+  likelihood: gaussian
+
+train:
+  epochs: 50
+  lr: 1.0e-3
+  beta: 1.0
+  kl_warmup_epochs: 0
+  seed: 0
+  sample_every: 5
+
+eval:
+  checkpoint: best
+  reference_split: test
+  num_samples: 0 # 0 = all 624 test images
+  repeats: 3
