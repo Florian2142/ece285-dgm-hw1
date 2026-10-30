@@ -16,7 +16,7 @@ from hw1.models import VAE
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "02_vae_step_by_step.ipynb"
 
 
-@pytest.mark.parametrize("cell_id, batch_size", [("cell-16", 1), ("7583b2f9", 4)])
+@pytest.mark.parametrize("cell_id, batch_size", [("overfit-one", 1), ("overfit-batch", 4)])
 def test_overfit_notebook_uses_fixed_tensor_and_configured_likelihood(monkeypatch, cell_id, batch_size):
     notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
     source = "".join(next(cell["source"] for cell in notebook["cells"] if cell["id"] == cell_id))

@@ -44,7 +44,7 @@ HPARAMS = {
 @pytest.fixture
 def notebook_functions(tmp_path):
     notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
-    source = "".join(next(cell["source"] for cell in notebook["cells"] if cell["id"] == "cell-19"))
+    source = "".join(next(cell["source"] for cell in notebook["cells"] if cell["id"] == "functions"))
     import copy
     import pickle as pickle_module
     from datetime import datetime
@@ -78,7 +78,7 @@ def notebook_functions(tmp_path):
         "MODELS_DIR": tmp_path / "models",
     }
     (tmp_path / "models").mkdir()
-    exec(compile(source, f"{NOTEBOOK.name}:cell-19", "exec"), namespace)
+    exec(compile(source, f"{NOTEBOOK.name}:functions", "exec"), namespace)
     return namespace
 
 
@@ -161,3 +161,32 @@ def test_load_old_pickle_flags_wrong_epoch_setting(notebook_functions, capsys):
     )
     printed = capsys.readouterr().out
     assert "epochs=750" in printed and "3 epochs" in printed
+
+
+def test_train_or_load_warns_when_the_saved_run_has_other_settings(notebook_functions, capsys):
+    ns = notebook_functions
+    model, run = ns["train_vae"](HPARAMS)
+    ns["save_vae"](model, run)
+    capsys.readouterr()
+
+    _, reused = ns["train_or_load"]("tiny", {**HPARAMS, "beta": 0.9})
+    printed = capsys.readouterr().out
+    assert reused["name"] == run["name"]  # still reused: the warning only reports the difference
+    assert "WARNING" in printed and "beta" in printed
+
+    ns["train_or_load"]("tiny", HPARAMS)
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_quick_runs_never_mix_with_real_runs(notebook_functions):
+    ns = notebook_functions
+    model, run = ns["train_vae"](HPARAMS)
+    ns["save_vae"](model, run)
+
+    ns["QUICK"] = True
+    _, quick = ns["train_or_load"]("tiny", {**HPARAMS, "epochs": 50})
+    assert quick["name"].startswith("quick-tiny-") and quick["epochs_completed"] == 2
+    assert ns["newest_run"]("tiny") == quick["name"]  # QUICK only sees quick runs
+
+    ns["QUICK"] = False
+    assert ns["newest_run"]("tiny") == run["name"]  # the real run is untouched and still the newest real run

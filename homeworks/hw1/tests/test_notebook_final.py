@@ -1,6 +1,10 @@
-"""Run the accepted section 14 on tiny CPU VAEs; no real data or Inception download."""
+"""Run the experiment and report cells of notebook 02 (sections 14 to 18) on tiny CPU VAEs.
 
-import ast
+No real data and no Inception download: a fake scorer, random 16 x 16 images, 2 epochs per run, and every
+file in a temporary folder. Checks the seeds and settings of every grid, that each run is scored with both
+samplers, that a second Run All trains and scores nothing, and that the report files are written.
+"""
+
 import csv
 import json
 from pathlib import Path
@@ -12,24 +16,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 import torch
+from torch.utils.data import TensorDataset
 
 from hw1.tests.test_notebook_runs import HPARAMS, notebook_functions  # noqa: F401
 
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "02_vae_step_by_step.ipynb"
+SINGLE_RUNS = ["vae-base", "vae-deep", "vae-calibrated", "a-stack", "r-aug"]  # trained directly in this test
+
+
+class FakeXray:
+    """Stands in for ChestXray in the scores cell: 8 random images per split."""
+
+    def __init__(self, split, size):
+        self.images = torch.rand(8, 1, size, size, generator=torch.Generator().manual_seed(len(split)))
+
+    def as_float(self):
+        return self.images
 
 
 @pytest.fixture
-def final_section(notebook_functions, tmp_path, monkeypatch):
+def experiments(notebook_functions, tmp_path, monkeypatch):  # noqa: F811 - imported pytest fixture
     ns = notebook_functions
     nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
-    sources = {c["id"]: "".join(c["source"]) for c in nb["cells"]}
-    ns.update(
-        A_STACK={**HPARAMS, "beta": 0.1, "epochs": 2, "weight_decay": 0.0},
-        json=json, csv=csv, np=np, plt=plt, FIGURES_DIR=tmp_path / "figures",
-    )
-    ns["FIGURES_DIR"].mkdir()
-    ns["x_fixed"] = ns["train"].tensors[0]
-    ns["test_images"] = torch.rand(8, 1, 16, 16, generator=torch.Generator().manual_seed(19))
+    sources = {cell["id"]: "".join(cell["source"]) for cell in nb["cells"]}
     calls = []
 
     @torch.no_grad()
@@ -40,94 +49,144 @@ def final_section(notebook_functions, tmp_path, monkeypatch):
         value = float((images - reference).square().mean())
         return {"fid": value, "fid_2048": 100 * value, "inception_score": 1 + value}
 
-    ns["scorer"] = scorer
-    ns["real_scores"] = {"fid": 0.0, "fid_2048": 0.0, "inception_score": 1.0}
-    ns["pca_reconstruct"] = lambda x, k: x  # PCA is only a figure reference in this test
-    for ident in ["cell-22", "cell-24", "cell-32", "cell-55"]:
-        tree = ast.parse(sources[ident])
-        functions = ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef)], type_ignores=[])
-        exec(compile(functions, ident, "exec"), ns)
+    pca_rows = {
+        f"pca-{k}": {"run": f"PCA K={k}", "K": k, "val_mse": 0.01, "fid_prior": 50.0, "is_prior": 1.5}
+        for k in (128, 256)
+    }
+    ns.update(
+        np=np,
+        json=json,
+        csv=csv,
+        plt=plt,
+        ChestXray=FakeXray,
+        InceptionScorer=lambda device: scorer,
+        FIGURES_DIR=tmp_path / "figures",
+        REPORT_DIR=tmp_path / "generated",
+        A_STACK={**HPARAMS, "beta": 0.1, "dropout": 0.0, "augment": False, "weight_decay": 0.0},
+        PCA_ROWS=pca_rows,
+        pca_reconstruct=lambda x, k: x,  # PCA is only a reference row and a figure row here
+    )
+    ns["FIGURES_DIR"].mkdir()
+    ns["REPORT_DIR"].mkdir()
     monkeypatch.setattr(plt, "show", lambda: plt.close("all"))
-    return ns, sources, calls
+
+    def run(ident):
+        exec(compile(sources[ident], f"{NOTEBOOK.name}:{ident}", "exec"), ns)
+
+    run("scores")
+    run("tables")
+    return ns, run, calls
 
 
-def test_final_six_seed_runs_both_samplers_cache_and_figures(final_section, monkeypatch):
-    ns, sources, score_calls = final_section
+def test_sections_14_to_18_train_score_cache_and_write_the_report(experiments, monkeypatch):
+    ns, run, calls = experiments
     old_threads = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
-        baseline, base_run = ns["train_vae"]({**HPARAMS, "name": "vae-base"})
-        ns["save_vae"](baseline, base_run)
-        seen_seeds, initial_weights = [], []
-        original_seed, original_build = ns["seed_everything"], ns["build_vae"]
+        for name in SINGLE_RUNS:  # earlier sections' runs that the report table lists
+            model, saved_run = ns["train_vae"]({**HPARAMS, "name": name})
+            ns["save_vae"](model, saved_run)
+        seen_seeds, original_seed = [], ns["seed_everything"]
 
         def seed(value):
             seen_seeds.append(value)
             original_seed(value)
 
-        def build(settings):
-            model = original_build(settings)
-            initial_weights.append(next(model.parameters()).detach().clone())
-            return model
-
         monkeypatch.setitem(ns, "seed_everything", seed)
-        monkeypatch.setitem(ns, "build_vae", build)
-        exec(compile(sources["cell-57"], "final-training", "exec"), ns)
+
+        # 13: the KL-weight grid on the stack, every point scored with both samplers
+        run("b-train")
+        assert set(ns["B"]) == {"b-beta0.03", "b-beta0.1", "b-beta0.3", "b-beta1", "b-calibrated"}
+
+        # 14: the regularization winners together, two betas, three seeds
+        seen_seeds.clear()
+        run("final-train")
         assert seen_seeds == [0, 1, 2, 0, 1, 2]
-        assert set(ns["final_runs"]) == {(b, s) for b in [0.1, 1.0] for s in [0, 1, 2]}
-        assert not torch.equal(initial_weights[0], initial_weights[1])
-        torch.testing.assert_close(initial_weights[0], initial_weights[3])
-        for (beta, run_seed), (model, run) in ns["final_runs"].items():
-            assert not model.training
-            assert run["hparams"]["seed"] == run_seed and run["hparams"]["beta"] == beta
-            assert run["hparams"]["augment"] and run["hparams"]["dropout"] == 0.2
-            assert run["epochs_completed"] == 2
-            assert run["best_val_neg_elbo"] == min(v["neg_elbo"] for v in run["history"]["val"])
+        for beta in (0.1, 1.0):
+            for s in (0, 1, 2):
+                hp = ns["load_vae"](f"final-beta{beta:g}-seed{s}")[1]["hparams"]
+                assert hp["augment"] and hp["dropout"] == 0.2 and hp["beta"] == beta and hp["seed"] == s
+        run("final-table")
 
-        fit_datasets = []
-        original_reconstruct = ns["reconstruct_all"]
+        # 15: the 2 x 2 grid at beta = 1 with augmentation, three declared seeds per setting
+        seen_seeds.clear()
+        run("c-train")
+        assert seen_seeds == [0, 1, 2] * 4
+        for name in ns["C"]:
+            for s in ns["C_SEEDS"]:
+                hp = ns["load_vae"](f"{name}-seed{s}")[1]["hparams"]
+                assert hp["augment"] and hp["beta"] == 1.0 and hp["dropout"] == 0.0 and hp["seed"] == s
+                assert hp["latent_dim"] == (256 if name.endswith("k256") else HPARAMS["latent_dim"])
+                assert hp["likelihood"] == ("gaussian_calibrated" if "calib" in name else "gaussian")
+        run("c-table")
 
-        def reconstruct(model, dataset):
-            fit_datasets.append(dataset)
-            return original_reconstruct(model, dataset)
+        # 16: the rule picks the base among sections 13 to 15, one change at a time, two more seeds for the better
+        seen_seeds.clear()
+        run("x")
+        runs = ns["RUNS"]
+        assert set(runs) == {*ns["B"], "final-beta0.1", "final-beta1", *ns["C"]}
+        fid = {
+            name: np.mean([ns["score_run"](r)["samples_aggregate"]["fid_2048"][0] for r in names])
+            for name, names in runs.items()
+        }
+        assert ns["X_FROM"] == min(fid, key=fid.get)
+        fitted = {name: ns["score_run"](f"{name}-seed0")["samples_aggregate"]["fid_2048"][0] for name in ns["X"]}
+        assert ns["X_BEST"] == min(fitted, key=fitted.get)
+        assert seen_seeds == [0, 0, 1, 2]
+        base = ns["load_vae"](runs[ns["X_FROM"]][0])[1]["hparams"]
+        for name, change in ns["X"].items():
+            hp = ns["load_vae"](f"{name}-seed0")[1]["hparams"]
+            assert {k: v for k, v in hp.items() if k not in ("name", "seed")} == {
+                **{k: v for k, v in base.items() if k not in ("name", "seed")},
+                **change,
+            }
+        assert ns["load_vae"]("x-group-seed0")[1]["hparams"]["norm"] == "group"
+        assert ns["load_vae"]("x-width64-seed0")[1]["hparams"]["hidden_channels"] == 64
+        for s in (1, 2):
+            assert ns["load_vae"](f"{ns['X_BEST']}-seed{s}")[1]["hparams"]["seed"] == s
 
-        monkeypatch.setitem(ns, "reconstruct_all", reconstruct)
-        exec(compile(sources["cell-58"], "final-scoring", "exec"), ns)
-        assert len(score_calls) == 36  # six models, two samplers, three sample repetitions
-        assert fit_datasets == [ns["train"]] * 6
-        score_paths = list(ns["MODELS_DIR"].glob("final-*_scores.json"))
-        assert len(score_paths) == 6
-        for path in score_paths:
+        for path in ns["MODELS_DIR"].glob("*_scores.json"):  # both samplers, (mean, std) each
             saved = json.loads(path.read_text())
-            assert {"samples", "samples_aggregate", "real_images"} <= saved.keys()
-            for kind in ["samples", "samples_aggregate"]:
-                assert len(saved[kind]["fid_2048"]) == 2  # within-model mean and sampling SD
+            for key in ("samples", "samples_aggregate"):
+                assert len(saved[key]["fid_2048"]) == 2
 
-        original_files = {p: p.read_bytes() for p in ns["MODELS_DIR"].glob("*")}
+        # Run All once more: nothing is trained or scored again, no file changes
+        n_calls = len(calls)
+        files = {path: path.read_bytes() for path in ns["MODELS_DIR"].glob("*")}
 
         def no_training(*args, **kwargs):
-            raise AssertionError("A completed final run was unexpectedly retrained")
+            raise AssertionError("a saved run was trained again")
 
         monkeypatch.setitem(ns, "train_vae", no_training)
-        exec(sources["cell-57"], ns)
-        exec(sources["cell-58"], ns)
-        assert seen_seeds == [0, 1, 2, 0, 1, 2] and len(score_calls) == 36
-        assert all(p.read_bytes() == content for p, content in original_files.items())
+        for ident in ["b-train", "final-train", "c-train", "x"]:
+            run(ident)
+        assert len(calls) == n_calls
+        assert all(path.read_bytes() == content for path, content in files.items())
 
-        exec(compile(sources["cell-59"], "final-report", "exec"), ns)
-        assert len(ns["final_rows"]) == 6
-        expected_beta = min([0.1, 1.0], key=lambda b: np.mean([
-            row["fid_prior"] for row in ns["final_rows"] if row["beta"] == b
-        ]))
-        assert ns["FINAL_BETA"] == expected_beta
-        assert ns["final_run"]["hparams"]["seed"] == 0
-        tables = list(ns["FIGURES_DIR"].glob("final_table_*.csv"))
-        assert len(tables) == 1
-        with tables[0].open(newline="") as stream:
-            assert len(list(csv.DictReader(stream))) == 6
-        assert len(list(ns["FIGURES_DIR"].glob("final_reconstructions_*.pdf"))) == 1
-        assert len(list(ns["FIGURES_DIR"].glob("final_samples_*.pdf"))) == 1
-        assert len(list(ns["FIGURES_DIR"].glob("*_loss_curves.pdf"))) == 1
+        # 17: one table with every reported row, all scored the same way
+        run("report-table")
+        report = ns["REPORT"]
+        fixed = ["vae-base", "vae-deep", "vae-calibrated", "a-stack", "r-aug", "b-beta1", "b-calibrated"]
+        assert list(report)[:8] == [*fixed, "final-beta1"] and ns["X_FROM"] in report
+        assert list(report)[-1] == ns["X_BEST"] and len(report[ns["X_BEST"]]) == 3
+        for names in report.values():
+            for name in names:
+                saved = json.loads((ns["MODELS_DIR"] / f"{ns['newest_run'](name)}_scores.json").read_text())
+                assert {"samples", "samples_aggregate"} <= saved.keys()
+        tex = (ns["REPORT_DIR"] / "results.tex").read_text(encoding="utf-8")
+        assert tex.count(r"\texttt{") == len(report) and tex.count("PCA &") == 2
+        with open(ns["REPORT_DIR"] / "results.csv", newline="") as stream:
+            assert len(list(csv.DictReader(stream))) == len(report)
+
+        # 18: the figures of the reported row (lowest fitted-prior FID)
+        ns["val"] = TensorDataset(torch.rand(476, 1, 16, 16), torch.zeros(476, dtype=torch.long))
+        run("report-figures")
+        table = ns["report_table"]
+        assert ns["REPORTED"] == min(table, key=lambda label: table[label]["fid_fitted"])
+        macro = (ns["REPORT_DIR"] / "reported.tex").read_text(encoding="utf-8")
+        assert macro == "\\newcommand{\\ReportedRun}{\\texttt{" + ns["REPORTED"] + "}}\n"
+        for name in ["images.png", "curves.png", "reported.txt"]:
+            assert (ns["REPORT_DIR"] / name).stat().st_size > 0
     finally:
         plt.close("all")
         torch.set_num_threads(old_threads)
