@@ -119,9 +119,7 @@ implemented with AI assistance. Much of the supporting code, including data proc
 training and evaluation infrastructure, logging, tests, and figures, was implemented with
 AI help. AI also helped restructure the notebook and draft and revise the report.
 
-I am not sure whether I wrote the sampling helper entirely myself, so I have left it out
-of the parts I claim to have implemented independently. The Python comments distinguish
-my original core implementation from the later AI-assisted additions.
+The Python comments distinguish my original core implementation from the later AI-assisted additions.
 
 ## Layout
 
