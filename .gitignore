@@ -20,3 +20,6 @@ homeworks/*/notebooks/models/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Derived inputs for reproducing the report figures (no raw dataset or weights).
+!homeworks/hw1/results/figure_data.npz

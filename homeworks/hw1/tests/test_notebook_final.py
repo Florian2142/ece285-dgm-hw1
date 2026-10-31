@@ -29,6 +29,7 @@ class FakeXray:
 
     def __init__(self, split, size):
         self.images = torch.rand(8, 1, size, size, generator=torch.Generator().manual_seed(len(split)))
+        self.labels = torch.tensor([0] * 4 + [1] * 4)
 
     def as_float(self):
         return self.images
@@ -190,3 +191,20 @@ def test_sections_14_to_18_train_score_cache_and_write_the_report(experiments, m
     finally:
         plt.close("all")
         torch.set_num_threads(old_threads)
+
+
+def test_old_score_cache_returns_current_real_baseline_without_changing_model_scores(experiments, monkeypatch):
+    ns, _, calls = experiments
+    cached = {"samples": {"fid_2048": [251.1, 0.5]},
+              "samples_aggregate": {"fid_2048": [101.7, 1.6]},
+              "real_images": {"fid_2048": 70.2}}
+    path = ns["MODELS_DIR"] / "old_scores.json"
+    path.write_text(json.dumps(cached))
+    original = path.read_bytes()
+    monkeypatch.setitem(ns, "newest_run", lambda name: "old")
+    n_calls = len(calls)
+    result = ns["score_run"]("old")
+    assert result["real_images"] == ns["real_scores"]
+    assert result["samples"] == cached["samples"]
+    assert result["samples_aggregate"] == cached["samples_aggregate"]
+    assert path.read_bytes() == original and len(calls) == n_calls

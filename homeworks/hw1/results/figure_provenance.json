@@ -1,0 +1,30 @@
+{
+  "wide_run": "x-width64-seed0-1029-185908",
+  "baseline_run": "vae-base-1028-162442",
+  "best_epoch": 104,
+  "validation_indices": [
+    0,
+    158,
+    317,
+    475
+  ],
+  "sampling_seed": 0,
+  "epochs": 200,
+  "curve_columns": [
+    "neg_elbo",
+    "recon",
+    "kl"
+  ],
+  "image_rows_left": [
+    "Validation",
+    "Baseline",
+    "Wide model"
+  ],
+  "image_rows_right": [
+    "Test images",
+    "Baseline: prior",
+    "Wide: prior",
+    "Wide: fitted"
+  ],
+  "note": "Original saved checkpoints; no retraining. Inputs follow the original prepare_figures.py RNG order. Figure renderer is hw1.prepare_figures. The archive permits plotting without private checkpoint files."
+}

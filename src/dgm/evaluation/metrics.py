@@ -1,5 +1,7 @@
 """FID and Inception Score with PyTorch-Ignite, preprocessed as in the course-linked tutorial.
 
+AI-assisted metric implementation following the course-linked Ignite tutorial.
+
 Tutorial: https://pytorch-ignite.ai/blog/gan-evaluation-with-fid-and-is/
 
 Every image goes through the tutorial's ``interpolate``: tensor in [0, 1] -> PIL ->

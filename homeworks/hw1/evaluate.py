@@ -1,5 +1,8 @@
 """Evaluate a trained HW1 run: new samples, reconstructions, FID and Inception Score.
 
+AI-assisted evaluation code for the experiments I chose, including score computation,
+image export, and the real-image baseline correction.
+
     uv run python -m hw1.evaluate                       # latest run, best checkpoint
     uv run python -m hw1.evaluate --run 20261020-101500-vae-base eval.repeats=5
     uv run python -m hw1.evaluate --no-scores           # image grids only (fast; keeps earlier scores)
@@ -18,8 +21,8 @@ Protocol (describe it in the report):
   drawn fresh in each of eval.repeats repeats -> mean and standard deviation
 - reconstructions: scores of reconstructed reference images; a gap between these and the
   sample scores points to a mismatch between the prior and the encoded data ("holes")
-- real baseline: n random TRAINING images scored the same way, i.e. the best value a
-  model can reach with this n (FID is biased upward when n is small)
+- real baseline: n TRAINING images sampled without replacement to match the reference
+  class counts; a finite-sample comparison, not a lower bound on FID
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from torch import Tensor, nn
 
 from dgm.data.chest_xray import ChestXray
 from dgm.evaluation.metrics import InceptionScorer
+from dgm.evaluation.sampling import matched_class_indices
 from dgm.training.checkpoint import load_checkpoint
 from dgm.training.runs import resolve_run_dir, write_json
 from dgm.utils.config import load_config
@@ -89,7 +93,8 @@ def evaluate(
     out_dir = run_dir / "eval"
     out_dir.mkdir(exist_ok=True)
 
-    reference = ChestXray(cfg.eval.reference_split, cfg.data.image_size).as_float()
+    reference_dataset = ChestXray(cfg.eval.reference_split, cfg.data.image_size)
+    reference = reference_dataset.as_float()
     n = cfg.eval.num_samples or len(reference)
     if n > len(reference):
         raise ValueError(
@@ -131,8 +136,10 @@ def evaluate(
             reconstruct(model, real, cfg.eval.batch_size, device), real
         )
         if cfg.eval.real_baseline and cfg.eval.reference_split != "train":
-            train_images = ChestXray("train", cfg.data.image_size).as_float()
-            picked = train_images[torch.randperm(len(train_images), generator=rng)[:n]]
+            training = ChestXray("train", cfg.data.image_size)
+            indices = matched_class_indices(training.labels, reference_dataset.labels[:n], seed=cfg.eval.seed)
+            picked = training.as_float()[indices]
+            results["real_baseline_protocol"] = "training sample matched to reference class counts"
             results["real_train_images"] = scorer(picked, real)
         write_json(out_dir / "metrics.json", results)  # only scored runs replace earlier scores
     print_summary(results)
@@ -165,7 +172,7 @@ def print_summary(results: dict) -> None:
     print(f"  {'samples':<17}" + "".join(f"{cell:>22}" for cell in cells))
     for key, label in (
         ("reconstructions", "reconstructions"),
-        ("real_train_images", "real (floor)"),
+        ("real_train_images", "real (matched)"),
     ):
         if key in results:
             print(f"  {label:<17}" + "".join(f"{fmt(results[key][k]):>22}" for k in SCORES))

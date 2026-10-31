@@ -1,5 +1,7 @@
 """Chest X-ray (pneumonia) images from Kaggle, prepared for generative modeling.
 
+AI-assisted supporting code for downloading, splitting, and preprocessing the data.
+
 Source: https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia
 (Kermany et al., Cell 2018). 5,856 JPEG images of different sizes; Kaggle splits
 train / val / test, classes NORMAL and PNEUMONIA.

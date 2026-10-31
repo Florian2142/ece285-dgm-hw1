@@ -1,11 +1,7 @@
-# Final HW1 run for the report = notebook section 14: the architecture winners of section 11
-# (stride-2 convs, SiLU, nearest-neighbour upsampling), the regularization winners of section 12
-# (augmentation, dropout 0.2 on the FC bottleneck), beta from section 13 / the section 14 table.
-# Train, score and export with the README pipeline (fills report/generated/ automatically):
-#   uv run python -m hw1.train --config homeworks/hw1/configs/final.yaml
-#   uv run python -m hw1.evaluate
-#   uv run python -m hw1.report_assets
-name: vae-final
+# Configuration of x-width64, the model illustrated in the report (seed 0).
+# The notebook is the source for the reported runs and fitted-prior evaluation.
+# The CLI trains the same configuration, but its RNG consumption differs.
+name: x-width64-seed0
 
 data:
   image_size: 64
@@ -13,7 +9,7 @@ data:
 
 model:
   latent_dim: 128
-  hidden_channels: 32
+  hidden_channels: 64
   num_stages: 3
   convs_per_stage: 1
   norm: batch
@@ -22,7 +18,7 @@ model:
   upsample: nearest_conv
   final_conv: false
   residual: false
-  dropout: 0.2
+  dropout: 0.0
   likelihood: gaussian
   gaussian_sigma: 0.1
 
@@ -31,8 +27,8 @@ train:
   lr: 1.0e-3
   lr_schedule: cosine
   weight_decay: 0.0
-  augment: true
-  beta: 1.0 # section 13: best FID of prior samples; set 0.1 if the section 14 table says otherwise
+  augment: false
+  beta: 0.03
   kl_warmup_epochs: 0
   grad_clip_norm: 1.0
   seed: 0

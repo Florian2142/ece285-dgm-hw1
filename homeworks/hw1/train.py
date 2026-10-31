@@ -1,5 +1,8 @@
 """Train the HW1 VAE on chest X-rays.
 
+I chose the experiments and regularization settings. AI helped implement the training
+loop, augmentation, scheduling, logging, and checkpoint support used to run them.
+
     uv run python -m hw1.train                                   # configs/base.yaml
     uv run python -m hw1.train --config homeworks/hw1/configs/smoke.yaml
     uv run python -m hw1.train train.epochs=100 model.latent_dim=64 name=vae-k64
@@ -74,7 +77,7 @@ def make_loader(split: str, cfg: Config, *, shuffle: bool) -> DataLoader:
 
 
 def augment_batch(x: Tensor, max_shift: int = 4, contrast: float = 0.1) -> Tensor:
-    """Training-time augmentation (plumbing, 27 Oct 2026, PLAN.md E7). Per image: a random
+    """I chose to test augmentation; AI helped implement it. Per image: a random
     shift of up to ``max_shift`` pixels in each direction (edge pixels repeated, nothing is
     invented) and a contrast change of up to ``contrast`` around the image mean. No flips:
     chest X-rays have the heart on one side."""

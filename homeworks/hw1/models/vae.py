@@ -29,11 +29,15 @@ B images and latent dimension K = cfg.latent_dim:
 - ``VAE.sample(n)`` -> ``[n, 1, H, W]`` in [0, 1]: NEW images from the prior; no input image
 - ``VAE.reconstruct(x)`` -> ``[B, 1, H, W]`` in [0, 1]
 
-Experiment knobs (ModelConfig: num_stages, convs_per_stage, norm, activation, downsample,
-upsample, final_conv, residual, dropout) are plumbing added on 26/27 Oct 2026 for the experiments
-in PLAN.md. They sit in the ``make_*`` helpers, the ``Skip`` wrapper, the ``dropout`` layers at
-both ends of the FC bottleneck, and the two loops that build the layers; the default settings
-build the hand-written architecture exactly, layer for layer.
+I implemented the original encoder and decoder, reparameterization, forward pass, and
+reconstruction myself. I chose the experiment ideas and comparisons, including architecture
+enhancements, regularization, and hyperparameters. AI implemented the later enhancements
+based on those choices. I am not certain about the sampling helper's individual authorship,
+so I do not include it in the independently written parts.
+
+The original layer structure is listed beside Encoder and Decoder below. AI implemented
+the configurable make_* helpers, flexible layer-building loops, residual option, and dropout
+additions. With the default settings, they reproduce my original architecture.
 """
 
 from __future__ import annotations
@@ -67,9 +71,9 @@ class VAEOutput:
 
 
 # ---------------------------------------------------------------------------------------
-# Building blocks for the experiment knobs in ModelConfig (plumbing, 26 Oct 2026, PLAN.md
-# Phase 0). Each one only picks a layer type. The architecture itself is the hand-written
-# code in Encoder and Decoder below, which the default settings reproduce exactly.
+# AI-assisted enhancements: helpers for the architecture options I chose to test.
+# These and the flexible layer-building loops extend my original encoder and decoder.
+# The default settings reproduce the original layers listed below.
 # ---------------------------------------------------------------------------------------
 
 
@@ -155,13 +159,13 @@ class Encoder(nn.Module):
         We define a convoluational feature extraction layer with shrinking size
         and maxpool layers aswell as BatchNorm.
         '''
-        # The hand-written architecture (all ModelConfig knobs at their defaults):
+        # My original encoder architecture (the default ModelConfig settings):
         #   64 -> 32: Conv2d(1, c, 3, padding=1),   BatchNorm2d(c),  ReLU, MaxPool2d(2)
         #   32 -> 16: Conv2d(c, 2c, 3, padding=1),  BatchNorm2d(2c), ReLU, MaxPool2d(2)
         #   16 -> 8:  Conv2d(2c, 4c, 3, padding=1), BatchNorm2d(4c), ReLU, MaxPool2d(2)
-        # The loop below builds exactly these layers (same order, same parameter count), and
-        # with other settings any depth (num_stages), convs per stage, norm, activation, and
-        # downsampling (plumbing for PLAN.md; the make_* helpers are at the top of the file).
+        # I used AI to help generalize this into the loop below for the experiments I chose:
+        # depth, convolutions per stage, normalization, activation, and downsampling.
+        # At the defaults, it keeps the original layer order and parameter count.
 
         if image_size % 2**cfg.num_stages != 0:
             raise ValueError("image size must be divisible by 2**num_stages")
@@ -196,8 +200,8 @@ class Encoder(nn.Module):
 
         self.mu_head = nn.Linear(num_features, cfg.latent_dim) # one output tensor for the mu
         self.logvar_head = nn.Linear(num_features, cfg.latent_dim) # one output tensor for the variance
-        # Plumbing (27 Oct, PLAN.md E7): dropout on the flattened features before the two heads.
-        # p = 0 (default) drops nothing, so the hand-written model is unchanged.
+        # My regularization experiment; AI helped implement this dropout option.
+        # p = 0 (default) leaves the original model unchanged.
         self.dropout = nn.Dropout(cfg.dropout)
 
         ########################################################################
@@ -211,9 +215,11 @@ class Encoder(nn.Module):
         # Flatten encoder features and predict mu and logvar.                  #
         ########################################################################
 
+        # My original forward path: extract features, flatten, and predict mu/logvar.
+        # Dropout and the log-variance safeguard were added later.
         features = self.features(x) # gives an activation map with 8*8*128 features hence = 8192
         flattened = torch.flatten(features, start_dim=1) # [B, 8192]
-        flattened = self.dropout(flattened)  # plumbing: no-op unless cfg.dropout > 0 (train mode only)
+        flattened = self.dropout(flattened)  # AI-assisted dropout addition; a no-op when p = 0
 
         mu = self.mu_head(flattened)
         logvar = clamp_logvar(self.logvar_head(flattened))
@@ -255,16 +261,16 @@ class Decoder(nn.Module):
 
         # [B, K] → [B, 8192] for your current configuration
         self.fc = nn.Linear(self.latent_dim, num_features)
-        # Plumbing (27 Oct, PLAN.md E7): dropout on the fc output; p = 0 (default) drops nothing.
+        # AI-assisted implementation of my decoder-dropout experiment; p = 0 drops nothing.
         self.dropout = nn.Dropout(cfg.dropout)
 
-        # The hand-written decoder (defaults) mirrors the encoder with up-convolutions
+        # My original decoder (defaults) mirrors the encoder with up-convolutions
         # (transposed convolutions, not interpolation):
         #   8 -> 16:  ConvTranspose2d(4c, 2c, 4, stride=2, padding=1), BatchNorm2d(2c), ReLU
         #   16 -> 32: ConvTranspose2d(2c, c, 4, stride=2, padding=1),  BatchNorm2d(c),  ReLU
         #   32 -> 64: ConvTranspose2d(c, 1, 4, stride=2, padding=1)    -> logits, no activation
-        # The loop below builds exactly these layers for the defaults. Knobs (plumbing for
-        # PLAN.md): final_conv keeps c channels in the last up-convolution and makes the logits
+        # AI helped implement the flexible loop below; the defaults keep my original layers.
+        # final_conv keeps c channels in the last up-convolution and makes the logits
         # with a 3x3 conv at full resolution; convs_per_stage > 1 adds 3x3 convs after each
         # up-convolution; upsample / norm / activation pick the layer types.
 
@@ -307,8 +313,9 @@ class Decoder(nn.Module):
         # Project and reshape z, then decode to image logits.                  #
         ########################################################################
 
+        # My original forward path: project z, reshape, and decode. Dropout was added later.
         features = self.fc(z)
-        features = self.dropout(features)  # plumbing: no-op unless cfg.dropout > 0 (train mode only)
+        features = self.dropout(features)  # AI-assisted dropout addition; a no-op when p = 0
 
         # we have one z for every pixel
         # hence we must make them spatially aware
@@ -358,6 +365,8 @@ class VAE(nn.Module):
         # change about that?                                                   #
         ########################################################################
 
+        # My core VAE implementation: reparameterize with z = mu + sigma * epsilon.
+        # The log-variance clamp is a later stability safeguard.
         # std = exp(0.5 * logvar). sqrt(exp(logvar)) is the same when finite, and overflows sooner.
         logvar = clamp_logvar(logvar)
         epsilon = torch.randn_like(mu)
@@ -377,6 +386,7 @@ class VAE(nn.Module):
         # VAEOutput(logits=..., mu=..., logvar=..., z=...).                    #
         ########################################################################
 
+        # My core VAE implementation: encode, sample the latent, then decode.
         mu, logvar = self.encode(x) # pass through encoder gives the mu, sigma
         latent_space = self.reparameterize(mu=mu, logvar=logvar) # use the reparametrization trick
         logits = self.decode(latent_space) # give the output
@@ -397,6 +407,8 @@ class VAE(nn.Module):
         # Sample z from the prior, decode, and apply sigmoid.                   #
         ########################################################################
 
+        # Sampling helper: generate images from standard-normal latents.
+        # Individual authorship is not confirmed; not claimed as independently written.
         parameter = next(self.parameters()) # we need to find where the params are running
 
         if device is None:
@@ -428,6 +440,7 @@ class VAE(nn.Module):
         # Reconstruct by decoding the posterior mean mu.                       #
         ########################################################################
 
+        # My core VAE implementation: reconstruct through the posterior mean.
         mu, _ = self.encode(x=x) # reconstruction only uses the latent mean
         # now we take same z
         z = mu

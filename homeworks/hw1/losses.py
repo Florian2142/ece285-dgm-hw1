@@ -1,5 +1,9 @@
 """The VAE objective: the negative evidence lower bound (ELBO).   >>> Implemented homework sections. <<<
 
+I implemented the core loss functions myself: Gaussian KL, reconstruction NLL, and
+their combination into the ELBO. I used AI to help implement the later calibrated
+Gaussian extension and numerical-stability improvements.
+
 For one image x, with q(z|x) = N(mu, diag(sigma^2)) and the prior p(z) = N(0, I):
 
     ELBO(x) = E_{q(z|x)}[ log p(x|z) ]  -  KL( q(z|x) || p(z) )      (maximize)
@@ -39,6 +43,7 @@ def kl_divergence(mu: Tensor, logvar: Tensor) -> Tensor:
     # Derive it on paper first, for ONE dimension:                         #
     # KL( N(m, s^2) || N(0, 1) ) = ?   Then write it with logvar = log s^2. #
     ########################################################################
+    # My core implementation: the closed-form Gaussian KL below.
     #   -1/2 * SUM(1 + log(s^2) - mu^2 - s^2)
     # Clamp before exp: a raw logvar above ~88 makes this inf - inf = NaN (see clamp_logvar).
     logvar = clamp_logvar(logvar)
@@ -67,14 +72,15 @@ def reconstruction_nll(
     # stable) over torch.sigmoid followed by torch.log.                    #
     ########################################################################
 
+    # My core implementation: Gaussian reconstruction NLL with fixed sigma.
     if likelihood == "gaussian":
         squared_erors = (x - torch.sigmoid(logits))**2
         summed_errors = squared_erors.sum(dim=(1, 2, 3))
 
         return 1 / (2 * sigma**2) * summed_errors + (x.shape[1] * x.shape[2] * x.shape[3]) * math.log(sigma * math.sqrt(2*math.pi))
     elif likelihood == "bernoulli":
-        # Compute log(p) and log(1-p) directly from logits. This keeps the
-        # manual BCE formula without log(0) or clipping away gradients.
+        # My original Bernoulli NLL formula, with AI-assisted stability changes
+        # to compute log(p) and log(1-p) without log(0) or clipped gradients.
         zeros = torch.zeros_like(logits)
         log_p = -torch.logaddexp(zeros, -logits)
         log_one_minus_p = -torch.logaddexp(zeros, logits)
@@ -113,13 +119,14 @@ def elbo_loss(
     # tradeoff, while "neg_elbo" always keeps the original KL weight?      #
     ########################################################################
 
-    # Plumbing (26 Oct 2026, PLAN.md Phase 0): the calibrated Gaussian decoder of Rybkin et
-    # al. (2021). sigma is the maximum-likelihood value for this batch, sigma^2 = mean squared
+    # AI-assisted enhancement: implementation of the calibrated Gaussian decoder
+    # of Rybkin et al. (2021). sigma^2 is this batch's mean squared
     # error (a constant for the gradient); then it is the ordinary Gaussian NLL from above.
     if likelihood == "gaussian_calibrated":
         sigma = (x - torch.sigmoid(out.logits)).square().mean().sqrt().item()
         likelihood = "gaussian"
 
+    # My core implementation: combine reconstruction and KL, then average over images.
     reconst_loss = reconstruction_nll(out.logits, x, likelihood=likelihood, sigma=sigma)
     dl_divergence = kl_divergence(out.mu, out.logvar)
 

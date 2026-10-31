@@ -1,5 +1,8 @@
 """HW1 settings. YAML files in configs/ override these defaults; the CLI overrides YAML.
 
+The experiment choices, including regularization, are mine. AI helped implement the
+configuration options so I could run those comparisons.
+
 Add fields freely (for example to ModelConfig when your architecture needs a new
 knob); YAML files and ``key=value`` overrides can then set them. Use a sentinel such
 as 0 for "off" instead of ``X | None`` types.
@@ -59,7 +62,7 @@ class EvalConfig:
     num_samples: int = 0  # images per FID/IS estimate; 0 = size of the reference split
     repeats: int = 3  # independent sets of generated images -> mean and std
     batch_size: int = 128
-    real_baseline: bool = True  # also score real training images: the best reachable value
+    real_baseline: bool = True  # also score training images matched to reference class counts
     seed: int = 1234
 
 
